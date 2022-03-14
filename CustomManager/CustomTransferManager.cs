@@ -92,7 +92,6 @@ namespace MoreEffectiveTransfer.CustomManager
         }
 
 
-
         [MethodImpl(512)] //=[MethodImpl(MethodImplOptions.AggressiveOptimization)]
         private static OFFER_MATCHMODE GetMatchOffersMode(TransferReason material)
         {
@@ -178,7 +177,7 @@ namespace MoreEffectiveTransfer.CustomManager
             distanceModifier = 1.0f;
 
             // guard: current option setting?
-            if (!MoreEffectiveTransfer.optionPreferLocalService)
+            if (!ModSettings.optionPreferLocalService)
                 return true;
 
             switch (material)
@@ -281,11 +280,33 @@ namespace MoreEffectiveTransfer.CustomManager
 
 
         [MethodImpl(512)] //=[MethodImpl(MethodImplOptions.AggressiveOptimization)]
+        private static float OutsideModifier(ref TransferOffer offer, TransferReason material)
+        {
+            const float OUTSIDE_MODIFIER = 0.25f;
+
+            if (!ModSettings.optionPreferExportShipPlaneTrain)
+                return 1f;
+
+            if ((offer.Building != 0) && (_BuildingManager.m_buildings.m_buffer[offer.Building].Info?.m_buildingAI is OutsideConnectionAI))
+            {
+                DebugLog.LogDebug((DebugLog.LogReason)material, $"       ** Outside Offer: material: {material}, {DebugInspectOffer(ref offer)}, SubService class is: {_BuildingManager.m_buildings.m_buffer[offer.Building].Info?.m_class.m_subService}");
+
+                if ((_BuildingManager.m_buildings.m_buffer[offer.Building].Info?.m_class.m_subService == ItemClass.SubService.PublicTransportTrain) ||
+                    (_BuildingManager.m_buildings.m_buffer[offer.Building].Info?.m_class.m_subService == ItemClass.SubService.PublicTransportShip) ||
+                    (_BuildingManager.m_buildings.m_buffer[offer.Building].Info?.m_class.m_subService == ItemClass.SubService.PublicTransportPlane))
+                    return OUTSIDE_MODIFIER;
+            }
+
+            return 1f;
+        }
+
+
+        [MethodImpl(512)] //=[MethodImpl(MethodImplOptions.AggressiveOptimization)]
         private static float WarehouseFirst(ref TransferOffer offer, TransferReason material, WAREHOUSE_OFFERTYPE whInOut)
         {
             const float WAREHOUSE_MODIFIER = 0.1f;   //modifier for distance for warehouse
 
-            if (!MoreEffectiveTransfer.optionWarehouseFirst)
+            if (!ModSettings.optionWarehouseFirst)
                 return 1f;
 
             if (offer.Exclude)  //TransferOffer.Exclude is only ever set by WarehouseAI!
@@ -310,7 +331,7 @@ namespace MoreEffectiveTransfer.CustomManager
         private static bool WarehouseCanTransfer(ref TransferOffer incomingOffer, ref TransferOffer outgoingOffer, TransferReason material)
         {
             // Option: optionWarehouseReserveTrucks
-            if ((MoreEffectiveTransfer.optionWarehouseReserveTrucks) && (outgoingOffer.Exclude && outgoingOffer.Active)) //further checks only relevant if outgoing from warehouse and active
+            if ((ModSettings.optionWarehouseReserveTrucks) && (outgoingOffer.Exclude && outgoingOffer.Active)) //further checks only relevant if outgoing from warehouse and active
             {
                 // is outgoing a warehouse with active delivery, and is counterpart incoming an outside connection?
                 if ((incomingOffer.Building != 0) && (_BuildingManager.m_buildings.m_buffer[incomingOffer.Building].Info?.m_buildingAI is OutsideConnectionAI && _BuildingManager.m_buildings.m_buffer[outgoingOffer.Building].Info?.m_buildingAI is WarehouseAI))
@@ -330,7 +351,7 @@ namespace MoreEffectiveTransfer.CustomManager
             }
 
             // Option: optionWarehouseNewBalanced
-            if (MoreEffectiveTransfer.optionWarehouseNewBalanced && (outgoingOffer.Exclude || incomingOffer.Exclude))
+            if (ModSettings.optionWarehouseNewBalanced && (outgoingOffer.Exclude || incomingOffer.Exclude))
             {
                 // attempting to import?
                 if ((incomingOffer.Exclude) && (outgoingOffer.Building != 0) && (_BuildingManager.m_buildings.m_buffer[outgoingOffer.Building].Info?.m_buildingAI is OutsideConnectionAI && _BuildingManager.m_buildings.m_buffer[incomingOffer.Building].Info?.m_buildingAI is WarehouseAI))
@@ -370,6 +391,55 @@ namespace MoreEffectiveTransfer.CustomManager
 
             // all good -> allow transfer
             return true;
+        }
+
+
+        [MethodImpl(512)] //=[MethodImpl(MethodImplOptions.AggressiveOptimization)]
+        private static bool PathfindExclusion(ref TransferOffer incomingOffer, ref TransferOffer outgoingOffer)
+        {
+            bool result = false;
+
+            //check failed building pair
+            if ((incomingOffer.Building != 0) && (outgoingOffer.Building != 0))
+            {
+                if (incomingOffer.Active)
+                    result = PathFindFailure.FindBuildingPair(incomingOffer.Building, outgoingOffer.Building);
+                else if (outgoingOffer.Active)
+                    result = PathFindFailure.FindBuildingPair(outgoingOffer.Building, incomingOffer.Building);
+
+                if (result)
+                {
+                    DebugLog.LogDebug(DebugLog.REASON_PATHFIND, $"       ** Pathfindfailure: Excluded: material:{job.material}, in:{incomingOffer.Building}({DebugInspectOffer(ref incomingOffer)}) and out:{outgoingOffer.Building}({DebugInspectOffer(ref outgoingOffer)})");
+                }
+            }
+
+            //check failed outside connection pair
+            if ((incomingOffer.Building != 0) && _BuildingManager.m_buildings.m_buffer[incomingOffer.Building].Info?.m_buildingAI is OutsideConnectionAI)
+            {
+                if (incomingOffer.Active)
+                    result = PathFindFailure.FindOutsideConnectionPair(incomingOffer.Building, outgoingOffer.Building);
+                else if (outgoingOffer.Active)
+                    result = PathFindFailure.FindOutsideConnectionPair(outgoingOffer.Building, incomingOffer.Building);
+
+                if (result)
+                {
+                    DebugLog.LogDebug(DebugLog.REASON_PATHFIND, $"       ** Pathfindfailure: Excluded incoming outsideconnection: material:{job.material}, {incomingOffer.Building}({DebugInspectOffer(ref incomingOffer)})");
+                }
+            }
+            else if ((outgoingOffer.Building != 0) && _BuildingManager.m_buildings.m_buffer[outgoingOffer.Building].Info?.m_buildingAI is OutsideConnectionAI)
+            {
+                if (incomingOffer.Active)
+                    result = PathFindFailure.FindOutsideConnectionPair(incomingOffer.Building, outgoingOffer.Building);
+                else if (outgoingOffer.Active)
+                    result = PathFindFailure.FindOutsideConnectionPair(outgoingOffer.Building, incomingOffer.Building);
+
+                if (result)
+                {
+                    DebugLog.LogDebug(DebugLog.REASON_PATHFIND, $"       ** Pathfindfailure: Excluded ougoing outsideconnection: material:{job.material}, {outgoingOffer.Building}({DebugInspectOffer(ref outgoingOffer)})");
+                }
+            }
+
+            return result;
         }
 
 
@@ -428,8 +498,14 @@ namespace MoreEffectiveTransfer.CustomManager
                 }
                 else
                 {
+                    // chirp about pathfinding issues
+                    PathFindFailure.SendPathFindChirp();
+
+                    // clean pathfind LRU
+                    PathFindFailure.RemoveOldEntries();
+
                     // wait for signal
-                    DebugLog.LogDebug(DebugLog.LogReason.ALL, $"MatchOffersThread: waiting for work signal...");
+                    DebugLog.LogDebug(DebugLog.REASON_ALL, $"MatchOffersThread: waiting for work signal...");
                     CustomTransferDispatcher._waitHandle.WaitOne();
                 }
 
@@ -599,13 +675,18 @@ namespace MoreEffectiveTransfer.CustomManager
                     if (outgoingOffer.Priority < (prio_lower_limit + 1)) continue;
                 }
 
+                //temporary exclusion due to pathfinding issues?
+                if (PathfindExclusion(ref incomingOffer, ref outgoingOffer)) continue;
+
+
                 // CHECK OPTION: preferlocalservice
                 float districtFactor = 1f;
                 // warehouse transfer always allow local use
                 bool isLocalAllowed = IsLocalUse(ref incomingOffer, ref outgoingOffer, job.material, incomingOffer.Priority, out districtFactor) || wareHouseTransfer;
 
-                // CHECK OPTION: WarehouseFirst
+                // CHECK OPTION: WarehouseFirst && ImportExportPreferTrainShipPlane
                 float distanceFactor = WarehouseFirst(ref outgoingOffer, job.material, WAREHOUSE_OFFERTYPE.OUTGOING);
+                distanceFactor *= OutsideModifier(ref outgoingOffer, job.material);
 
                 // CHECK OPTION: WarehouseReserveTrucks
                 bool canTransfer = WarehouseCanTransfer(ref incomingOffer, ref outgoingOffer, job.material);
@@ -678,12 +759,17 @@ namespace MoreEffectiveTransfer.CustomManager
                     if (incomingOffer.Priority < (prio_lower_limit + 1)) continue;
                 }
 
+                //temporary exclusion due to pathfinding issues?
+                if (PathfindExclusion(ref incomingOffer, ref outgoingOffer)) continue;
+
+
                 // CHECK OPTION: preferlocalservice
                 float districtFactor = 1f;
                 bool isLocalAllowed = IsLocalUse(ref incomingOffer, ref outgoingOffer, job.material, outgoingOffer.Priority, out districtFactor) || wareHouseTransfer;
 
                 // CHECK OPTION: WarehouseFirst
                 float distanceFactor = WarehouseFirst(ref incomingOffer, job.material, WAREHOUSE_OFFERTYPE.INCOMING);
+                distanceFactor *= OutsideModifier(ref incomingOffer, job.material);
 
                 // CHECK OPTION: WarehouseReserveTrucks
                 bool canTransfer = WarehouseCanTransfer(ref incomingOffer, ref outgoingOffer, job.material);
