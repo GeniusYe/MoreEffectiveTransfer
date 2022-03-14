@@ -132,21 +132,24 @@ namespace MoreEffectiveTransfer.CustomManager
                 case TransferReason.OutgoingMail:       //outside connections incoming(passive)
                     return OFFER_MATCHMODE.BALANCED;
 
-                // Services which should be outgoing first, but also benefit from incoming match-making (vehicles in the field with capacity to spare)
+                // Services which should be outgoing first
                 case TransferReason.Garbage:            //Garbage: outgoing offer (passive) from buldings with garbage to be collected, incoming (active) from landfills
                 case TransferReason.Crime:              //Crime: outgoing offer (passive) 
                 case TransferReason.Dead:               //Dead: outgoing offer (passive) 
                 case TransferReason.Collapsed:          //Collapsed: outgoing (passive) from buildings
                 case TransferReason.Collapsed2:         //Collapsed2: helicopter
-                case TransferReason.Snow:               //outgoing (passive) from netsegements, incoming (active) from snowdumps
                 case TransferReason.RoadMaintenance:    //incoming (passive) from netsegments, outgoing (active) from maintenance depot
                 case TransferReason.ParkMaintenance:    //incoming (passive) from park main gate building, 
+                    return OFFER_MATCHMODE.OUTGOING_FIRST;
+
+                // Services outgoing first
+                case TransferReason.Snow:               //outgoing (passive) from netsegements, incoming (active) from snowdumps
                 case TransferReason.CriminalMove:       //outging (passive) from policestations, incoming(active) from prisons (REVERSED ACTIVE/PASSIVE COMPARED TO OTHER MOVE TRANSFERS!)
                 case TransferReason.GarbageTransfer:    //GarbageTransfer: outgoing (passive) from landfills/wtf, incoming (active) from wasteprocessingcomplex
                 case TransferReason.GarbageMove:        //GarbageMove: outgoing (active) from emptying landfills, incoming (passive) from receiving landfills/wastetransferfacilities/wasteprocessingcomplex
                 case TransferReason.DeadMove:           //outgoing (active) from emptying, incoming (passive) from receiving
                 case TransferReason.SnowMove:           //outgoing (active) from emptying snowdumps, incoming (passive) from receiving
-                    return OFFER_MATCHMODE.BALANCED;                        
+                    return OFFER_MATCHMODE.OUTGOING_FIRST;
 
                 case TransferReason.ForestFire:         //like Fire2
                 case TransferReason.Fire2:              //Fire2: helicopter
@@ -168,7 +171,7 @@ namespace MoreEffectiveTransfer.CustomManager
         [MethodImpl(512)] //=[MethodImpl(MethodImplOptions.AggressiveOptimization)]
         private static bool IsLocalUse(ref TransferOffer offerIn, ref TransferOffer offerOut, TransferReason material, int priority, out float distanceModifier)
         {
-            const int PRIORITY_THRESHOLD_LOCAL = 3;     //upper prios also get non-local fulfillment
+            int local_priority_threshold = 3;       //upper prios also get non-local fulfillment
             const float LOCAL_DISTRICT_MODIFIER = 0.1f;   //modifier for distance within same district
             bool isMoveTransfer = false;
             bool isLocal = false;
@@ -177,14 +180,6 @@ namespace MoreEffectiveTransfer.CustomManager
             // guard: current option setting?
             if (!MoreEffectiveTransfer.optionPreferLocalService)
                 return true;
-
-            // priority of passive side above threshold -> any service is OK!
-            priority = offerIn.Active ? offerOut.Priority : offerIn.Priority;
-            if (priority >= PRIORITY_THRESHOLD_LOCAL)
-            { 
-                isLocal = true;
-                // continue logic to set distanceModifier for service within same district
-            }
 
             switch (material)
             {
@@ -201,11 +196,32 @@ namespace MoreEffectiveTransfer.CustomManager
                 case TransferReason.ParkMaintenance:
                 case TransferReason.Mail:
                 case TransferReason.Taxi:
+                case TransferReason.Dead:
                     break;
 
-                case TransferReason.Dead:                     
-                    //isLocal = true;           //always allow but continue logic to profit from reduced distancemodifier if within same district
+                // Goods subject to prefer local:
+                case TransferReason.Oil:
+                case TransferReason.Ore:
+                case TransferReason.Coal:
+                case TransferReason.Petrol:
+                case TransferReason.Food:
+                case TransferReason.Grain:
+                case TransferReason.Lumber:
+                case TransferReason.Logs:
+                case TransferReason.Goods:
+                case TransferReason.LuxuryProducts:
+                case TransferReason.AnimalProducts:
+                case TransferReason.Flours:
+                case TransferReason.Petroleum:
+                case TransferReason.Plastics:
+                case TransferReason.Metals:
+                case TransferReason.Glass:
+                case TransferReason.PlanedTimber:
+                case TransferReason.Paper:
+                case TransferReason.Fish:
+                    local_priority_threshold = 2;  // warehouse never goes over 2 sooooo...
                     break;
+
 
                 // Goods subject to prefer local:
                 // -none-
@@ -222,6 +238,13 @@ namespace MoreEffectiveTransfer.CustomManager
 
                 default:
                     return true;                //guard: dont apply district logic to other materials
+            }
+
+            // priority of passive side above threshold -> any service is OK!
+            if (priority >= local_priority_threshold)
+            {
+                isLocal = true;
+                // continue logic to set distanceModifier for service within same district
             }
 
             // determine buildings or vehicle parent buildings
@@ -569,11 +592,17 @@ namespace MoreEffectiveTransfer.CustomManager
                 if ((outgoingOffer.Amount <= 0) || (outgoingOffer.m_object == incomingOffer.m_object)) continue;
 
                 //guard: if both are warehouse, prevent low prio inter-warehouse transfers
-                if ((incomingOffer.Exclude) && (outgoingOffer.Exclude) && (outgoingOffer.Priority < (prio_lower_limit + 1))) continue;
+                bool wareHouseTransfer = false;
+                if ((incomingOffer.Exclude) && (outgoingOffer.Exclude))
+                {
+                    wareHouseTransfer = true;
+                    if (outgoingOffer.Priority < (prio_lower_limit + 1)) continue;
+                }
 
                 // CHECK OPTION: preferlocalservice
                 float districtFactor = 1f;
-                bool isLocalAllowed = IsLocalUse(ref incomingOffer, ref outgoingOffer, job.material, incomingOffer.Priority, out districtFactor);
+                // warehouse transfer always allow local use
+                bool isLocalAllowed = IsLocalUse(ref incomingOffer, ref outgoingOffer, job.material, incomingOffer.Priority, out districtFactor) || wareHouseTransfer;
 
                 // CHECK OPTION: WarehouseFirst
                 float distanceFactor = WarehouseFirst(ref outgoingOffer, job.material, WAREHOUSE_OFFERTYPE.OUTGOING);
@@ -642,11 +671,16 @@ namespace MoreEffectiveTransfer.CustomManager
                 if ((incomingOffer.Amount <= 0) || (incomingOffer.m_object == outgoingOffer.m_object)) continue;
 
                 //guard: if both are warehouse, prevent low prio inter-warehouse transfers
-                if ((outgoingOffer.Exclude) && (incomingOffer.Exclude) && (incomingOffer.Priority < (prio_lower_limit + 1))) continue;
+                bool wareHouseTransfer = false;
+                if ((outgoingOffer.Exclude) && (incomingOffer.Exclude))
+                {
+                    wareHouseTransfer = true;
+                    if (incomingOffer.Priority < (prio_lower_limit + 1)) continue;
+                }
 
                 // CHECK OPTION: preferlocalservice
                 float districtFactor = 1f;
-                bool isLocalAllowed = IsLocalUse(ref incomingOffer, ref outgoingOffer, job.material, outgoingOffer.Priority, out districtFactor);
+                bool isLocalAllowed = IsLocalUse(ref incomingOffer, ref outgoingOffer, job.material, outgoingOffer.Priority, out districtFactor) || wareHouseTransfer;
 
                 // CHECK OPTION: WarehouseFirst
                 float distanceFactor = WarehouseFirst(ref incomingOffer, job.material, WAREHOUSE_OFFERTYPE.INCOMING);

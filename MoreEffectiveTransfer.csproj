@@ -32,7 +32,7 @@
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <PlatformTarget>x64</PlatformTarget>
+    <PlatformTarget>AnyCPU</PlatformTarget>
   </PropertyGroup>
   <PropertyGroup>
     <!-- Steam install path - currently unused -->
@@ -41,7 +41,7 @@
     <!-- <CitiesSkylinesModsPath>$(LOCALAPPDATA)\Colossal Order\Cities_Skylines\Addons\Mods\</CitiesSkylinesModsPath>-->
     <!-- WORKSHOP BUILD: <CitiesSkylinesModsPath>$(CitiesSkylinesInstallPath)..\..\workshop\content\255710\metm\</CitiesSkylinesModsPath> -->
     <!-- LOCAL BUILD: -->
-    <CitiesSkylinesModsPath>C:\Users\Henne\AppData\Local\Colossal Order\Cities_Skylines\Addons\Mods\metm\</CitiesSkylinesModsPath>
+    <CitiesSkylinesModsPath>C:\Users\JiaJie Ye\AppData\Local\Colossal Order\Cities_Skylines\Addons\Mods\METM\</CitiesSkylinesModsPath>
     <!-- END LOCAL BUILD -->
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Profile|AnyCPU'">
